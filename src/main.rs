@@ -9,8 +9,10 @@ use plotters::coord::Shift;
 struct FastaStats {
     assembly_length: f64,
     number_of_sequences: f64,
-    N50: f64,
-    GC_percentage: f64,
+    #[serde(rename = "N50")]
+    n50: f64,
+    #[serde(rename = "GC_percentage")]
+    gc_percentage: f64,
     #[serde(rename = "N_percentage")]
     n_percentage: f64,
 }
@@ -110,8 +112,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     // Prepare data vectors
     let assembly_lengths: Vec<f64> = records.iter().map(|r| r.assembly_length).collect();
     let sequence_counts: Vec<f64> = records.iter().map(|r| r.number_of_sequences).collect();
-    let n50s: Vec<f64> = records.iter().map(|r| r.N50).collect();
-    let gc_percentages: Vec<f64> = records.iter().map(|r| r.GC_percentage).collect();
+    let n50s: Vec<f64> = records.iter().map(|r| r.n50).collect();
+    let gc_percentages: Vec<f64> = records.iter().map(|r| r.gc_percentage).collect();
     let n_percentages: Vec<f64> = records.iter().map(|r| r.n_percentage).collect();
 
     // Create the output file
