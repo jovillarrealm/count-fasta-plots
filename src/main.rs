@@ -98,7 +98,7 @@ where
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let filename = std::env::args().nth(1).expect("Please provide a CSV file path");
+    let filename = std::env::args().nth(1).expect("Please provide a CSV file path.\nOutput in the shape of the output of count-fasta-rs");
     
     // Read CSV file
     let mut reader = ReaderBuilder::new()
