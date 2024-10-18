@@ -1,6 +1,6 @@
 [package]
 name = "count-fasta-plots"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 repository="https://github.com/jovillarrealm/count-fasta-plots"
 

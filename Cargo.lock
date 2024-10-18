@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "count-fasta-plots"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "csv",
  "plotters",
