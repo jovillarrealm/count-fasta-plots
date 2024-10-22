@@ -8,7 +8,7 @@ use statistical::median;
 struct GenomeStats {
     assembly_length: f64,
     number_of_sequences: f64,
-    #[serde(rename = "n50")]
+    #[serde(rename = "N50")]
     n50: f64,
     #[serde(rename = "GC_percentage")]
     gc_percentage: f64,
@@ -28,11 +28,25 @@ fn create_boxplot<DB: DrawingBackend>(
     let q1_idx = (sorted_data.len() as f64 * 0.25) as usize;
     let q3_idx = (sorted_data.len() as f64 * 0.75) as usize;
     
-    let min = sorted_data[0];
-    let max = sorted_data[sorted_data.len() - 1];
     let q1 = sorted_data[q1_idx];
     let q3 = sorted_data[q3_idx];
     let med = median(&sorted_data);
+    
+    // Calculate IQR and whisker bounds
+    let iqr = q3 - q1;
+    let lower_bound = q1 - 1.5 * iqr;
+    let upper_bound = q3 + 1.5 * iqr;
+    
+    // Find actual whisker ends (last non-outlier points)
+    let whisker_min = sorted_data.iter()
+        .find(|&&x| x >= lower_bound)
+        .copied()
+        .unwrap_or(q1);
+    let whisker_max = sorted_data.iter()
+        .rev()
+        .find(|&&x| x <= upper_bound)
+        .copied()
+        .unwrap_or(q3);
     
     // Draw box
     plot.draw_series(std::iter::once(Rectangle::new(
@@ -48,13 +62,22 @@ fn create_boxplot<DB: DrawingBackend>(
     
     // Draw whiskers
     plot.draw_series(std::iter::once(PathElement::new(
-        vec![(min, y_position), (q1, y_position)],
+        vec![(whisker_min, y_position), (q1, y_position)],
         BLACK,
     )))?;
     plot.draw_series(std::iter::once(PathElement::new(
-        vec![(q3, y_position), (max, y_position)],
+        vec![(q3, y_position), (whisker_max, y_position)],
         BLACK,
     )))?;
+    
+    // Draw outlier points
+    let outliers: Vec<_> = data.iter()
+        .filter(|&&x| x < lower_bound || x > upper_bound)
+        .collect();
+    
+    plot.draw_series(outliers.iter().map(|&&x| {
+        Circle::new((x, y_position), 3, BLACK.filled())
+    }))?;
     
     Ok(())
 }
