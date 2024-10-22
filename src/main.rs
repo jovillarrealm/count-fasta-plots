@@ -1,15 +1,14 @@
-use std::error::Error;
-use csv::ReaderBuilder;
 use plotters::prelude::*;
+use plotters::coord::types::RangedCoordf64;
 use serde::Deserialize;
-use plotters::prelude::full_palette::BLACK;
-use plotters::coord::Shift;
+use std::error::Error;
+use statistical::median;
 
 #[derive(Debug, Deserialize)]
-struct FastaStats {
+struct GenomeStats {
     assembly_length: f64,
     number_of_sequences: f64,
-    #[serde(rename = "N50")]
+    #[serde(rename = "n50")]
     n50: f64,
     #[serde(rename = "GC_percentage")]
     gc_percentage: f64,
@@ -17,152 +16,96 @@ struct FastaStats {
     n_percentage: f64,
 }
 
-fn create_box_plot<DB: DrawingBackend>(
-    ctx: &DrawingArea<DB, Shift>,
+fn create_boxplot<DB: DrawingBackend>(
+    plot: &mut ChartContext<DB, Cartesian2d<RangedCoordf64, RangedCoordf64>>,
     data: &[f64],
-    title: &str,
-    x_label: &str,
-    y_label: &str,
-) -> Result<(), Box<dyn Error>>
-where
-    DB::ErrorType: 'static,
-{
-    let min = data.iter().cloned().fold(f64::INFINITY, f64::min);
-    let max = data.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
-    let range = max - min;
-    let padding = range * 0.1;
-
-    let mut chart = ChartBuilder::on(ctx)
-        .margin(5)
-        .caption(title, ("sans-serif", 20))
-        .x_label_area_size(40)
-        .y_label_area_size(40)
-        .build_cartesian_2d((min - padding)..(max + padding), 0f64..1f64)?;
-
-    chart
-        .configure_mesh()
-        .x_desc(x_label)
-        .y_desc(y_label)
-        .draw()?;
-
+    y_position: f64,
+) -> Result<(), Box<dyn Error>> where <DB as plotters::prelude::DrawingBackend>::ErrorType: 'static {
     // Calculate box plot statistics
-    let mut sorted_data: Vec<f64> = data.to_vec();
+    let mut sorted_data = data.to_vec();
     sorted_data.sort_by(|a, b| a.partial_cmp(b).unwrap());
     
     let q1_idx = (sorted_data.len() as f64 * 0.25) as usize;
-    let q2_idx = (sorted_data.len() as f64 * 0.5) as usize;
     let q3_idx = (sorted_data.len() as f64 * 0.75) as usize;
     
+    let min = sorted_data[0];
+    let max = sorted_data[sorted_data.len() - 1];
     let q1 = sorted_data[q1_idx];
-    let median = sorted_data[q2_idx];
     let q3 = sorted_data[q3_idx];
+    let med = median(&sorted_data);
     
-    let iqr = q3 - q1;
-    let lower_fence = q1 - 1.5 * iqr;
-    let upper_fence = q3 + 1.5 * iqr;
-
     // Draw box
-    chart.draw_series(std::iter::once(Rectangle::new(
-        [(q1, 0.25), (q3, 0.75)],
-        BLUE.mix(0.3).filled(),
+    plot.draw_series(std::iter::once(Rectangle::new(
+        [(q1, y_position - 0.3), (q3, y_position + 0.3)],
+        BLUE.mix(0.3),
     )))?;
-
+    
     // Draw median line
-    chart.draw_series(std::iter::once(PathElement::new(
-        vec![(median, 0.25), (median, 0.75)],
-        RED.stroke_width(2),
+    plot.draw_series(std::iter::once(Rectangle::new(
+        [(med - 0.1, y_position - 0.3), (med + 0.1, y_position + 0.3)],
+        RED,
     )))?;
-
+    
     // Draw whiskers
-    chart.draw_series(std::iter::once(PathElement::new(
-        vec![(lower_fence, 0.5), (q1, 0.5)],
-        BLACK.stroke_width(1),
+    plot.draw_series(std::iter::once(PathElement::new(
+        vec![(min, y_position), (q1, y_position)],
+        BLACK,
     )))?;
-    chart.draw_series(std::iter::once(PathElement::new(
-        vec![(q3, 0.5), (upper_fence, 0.5)],
-        BLACK.stroke_width(1),
+    plot.draw_series(std::iter::once(PathElement::new(
+        vec![(q3, y_position), (max, y_position)],
+        BLACK,
     )))?;
-
-    // Draw outliers
-    let outliers: Vec<(f64, f64)> = sorted_data
-        .iter()
-        .filter(|&&x| x < lower_fence || x > upper_fence)
-        .map(|&x| (x, 0.5))
-        .collect();
-
-    chart.draw_series(outliers.iter().map(|point| {
-        Circle::new(*point, 3, BLACK.mix(0.5).filled())
-    }))?;
-
+    
     Ok(())
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let filename = std::env::args().nth(1).expect("Please provide a CSV file path.\nOutput in the shape of the output of count-fasta-rs");
-    
-    // Read CSV file
-    let mut reader = ReaderBuilder::new()
+    let mut data = Vec::new();
+    let mut rdr = csv::ReaderBuilder::new()
         .delimiter(b';')
-        .from_path(&filename)?;
+        .from_path(std::env::args().nth(1).expect("Please provide a CSV file"))?;
     
-    let records: Vec<FastaStats> = reader
-        .deserialize()
-        .collect::<Result<Vec<FastaStats>, _>>()?;
+    for result in rdr.deserialize() {
+        let record: GenomeStats = result?;
+        data.push(record);
+    }
 
-    // Prepare data vectors
-    let assembly_lengths: Vec<f64> = records.iter().map(|r| r.assembly_length).collect();
-    let sequence_counts: Vec<f64> = records.iter().map(|r| r.number_of_sequences).collect();
-    let n50s: Vec<f64> = records.iter().map(|r| r.n50).collect();
-    let gc_percentages: Vec<f64> = records.iter().map(|r| r.gc_percentage).collect();
-    let n_percentages: Vec<f64> = records.iter().map(|r| r.n_percentage).collect();
-
-    // Create the output file
     let root = BitMapBackend::new("count-fasta.png", (800, 1120))
         .into_drawing_area();
     root.fill(&WHITE)?;
 
-    // Split the drawing area into 5 parts
-    let areas = root.split_evenly((5, 1));
+    let plots = root.split_evenly((5, 1));
+    
+    let metrics: Vec<(&str, &str, Box<dyn Fn(&GenomeStats) -> f64>)> = vec![
+        ("Assembly size (bp.)", "bp.", Box::new(|x| x.assembly_length)),
+        ("Scaffold count", "Count", Box::new(|x| x.number_of_sequences)),
+        ("N50 (bp.)", "bp.", Box::new(|x| x.n50)),
+        ("GC ratio (%)", "GC ratio (%)", Box::new(|x| x.gc_percentage)),
+        ("N's ratio (%)", "Ratio (%)", Box::new(|x| x.n_percentage)),
+    ];
 
-    // Create each box plot
-    create_box_plot(
-        &areas[0],
-        &assembly_lengths,
-        "Assembly size (bp.)",
-        "bp.",
-        "A",
-    )?;
-    create_box_plot(
-        &areas[1],
-        &sequence_counts,
-        "Scaffold count",
-        "Count",
-        "B",
-    )?;
-    create_box_plot(
-        &areas[2],
-        &n50s,
-        "N50 (bp.)",
-        "bp.",
-        "C",
-    )?;
-    create_box_plot(
-        &areas[3],
-        &gc_percentages,
-        "GC ratio (%)",
-        "GC ratio (%)",
-        "D",
-    )?;
-    create_box_plot(
-        &areas[4],
-        &n_percentages,
-        "N's ratio (%)",
-        "Ratio (%)",
-        "E",
-    )?;
+    for (i, (plot_area, (title, xlabel, metric))) in plots.iter().zip(metrics.iter()).enumerate() {
+        let values: Vec<f64> = data.iter().map(metric).collect();
+        let min = values.iter().fold(f64::INFINITY, |a, &b| a.min(b));
+        let max = values.iter().fold(f64::NEG_INFINITY, |a, &b| a.max(b));
+        let padding = (max - min) * 0.1;
 
-    root.present()?;
-    println!("Plot has been saved as 'count-fasta.png'");
+        let mut chart = ChartBuilder::on(plot_area)
+            .margin(5)
+            .caption(title, ("sans-serif", 20))
+            .set_label_area_size(LabelAreaPosition::Left, 40)
+            .set_label_area_size(LabelAreaPosition::Bottom, 40)
+            .build_cartesian_2d(min - padding..max + padding, 0.0..2.0)?;
+
+        chart
+            .configure_mesh()
+            .disable_y_mesh()
+            .y_desc(format!("{}", (b'A' + i as u8) as char))
+            .x_desc(xlabel.to_string())
+            .draw()?;
+
+        create_boxplot(&mut chart, &values, 1.0)?;
+    }
 
     Ok(())
 }
